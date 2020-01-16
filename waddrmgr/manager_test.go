@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/btcsuite/btcutil/hdkeychain"
 	"os"
 	"reflect"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/snacl"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
@@ -1932,7 +1932,7 @@ func TestManager(t *testing.T) {
 }
 
 // TestManagerNewWatchOnly is similar to TestManager, but uses the
-// CreateWatchOnly to test watch-only wallets created from export
+// CreateWatchOnly to test watch-only wallets created from exported
 // xpubs.
 func TestManagerNewWatchOnly(t *testing.T) {
 	t.Parallel()
@@ -2685,7 +2685,8 @@ func TestNewRawAccountWatchingOnly(t *testing.T) {
 	testNewRawAccount(t, mgr, db, accountNum, scopedMgr)
 }
 
-func testNewRawAccount(t *testing.T, mgr *Manager, db walletdb.DB, accountNum uint32, scopedMgr *ScopedKeyManager) {
+func testNewRawAccount(t *testing.T, mgr *Manager, db walletdb.DB,
+	accountNum uint32, scopedMgr *ScopedKeyManager) {
 	// With the account created, we should be able to derive new addresses
 	// from the account.
 	var accountAddrNext ManagedAddress
