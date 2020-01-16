@@ -1068,13 +1068,12 @@ func testMarkUsed(tc *testContext, doScript bool) bool {
 		},
 	}
 
-	if !doScript {
-		tests = tests[0:1]
-	}
-
 	prefix := "MarkUsed"
 	chainParams := tc.manager.ChainParams()
 	for i, test := range tests {
+		if !doScript && test.typ == addrScriptHash {
+			continue
+		}
 		addrHash := test.in
 
 		var addr btcutil.Address
