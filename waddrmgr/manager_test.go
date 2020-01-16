@@ -1958,7 +1958,8 @@ func TestManagerNewWatchOnly(t *testing.T) {
 			return err
 		}
 
-		_, err = mgr.NewWatchingOnlyScopedKeyManager(ns, KeyScopeBIP0044, ScopeAddrMap[KeyScopeBIP0044])
+		_, err = mgr.NewScopedKeyManager(
+			ns, KeyScopeBIP0044, ScopeAddrMap[KeyScopeBIP0044])
 
 		return err
 	})
@@ -2650,7 +2651,8 @@ func TestNewRawAccountWatchingOnly(t *testing.T) {
 			return err
 		}
 
-		_, err = mgr.NewWatchingOnlyScopedKeyManager(ns, KeyScopeBIP0084, ScopeAddrMap[KeyScopeBIP0084])
+		_, err = mgr.NewScopedKeyManager(
+			ns, KeyScopeBIP0084, ScopeAddrMap[KeyScopeBIP0084])
 		return err
 	})
 	if err != nil {

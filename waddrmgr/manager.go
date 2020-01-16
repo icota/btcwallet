@@ -430,53 +430,56 @@ func (m *Manager) Close() {
 //
 // TODO(roasbeef): addrtype of raw key means it'll look in scripts to possibly
 // mark as gucci?
-func (m *Manager) NewScopedKeyManager(ns walletdb.ReadWriteBucket, scope KeyScope,
-	addrSchema ScopeAddrSchema) (*ScopedKeyManager, error) {
+func (m *Manager) NewScopedKeyManager(ns walletdb.ReadWriteBucket,
+	scope KeyScope, addrSchema ScopeAddrSchema) (*ScopedKeyManager, error) {
 
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	// If the manager is locked, then we can't create a new scoped manager.
-	if m.locked {
-		return nil, managerError(ErrLocked, errLocked, nil)
-	}
+	var rootPriv *hdkeychain.ExtendedKey
+	if !m.watchingOnly {
+		// If the manager is locked, then we can't create a new scoped manager.
+		if m.locked {
+			return nil, managerError(ErrLocked, errLocked, nil)
+		}
 
-	// Now that we know the manager is unlocked, we'll need to fetch the
-	// root master HD private key. This is required as we'll be attempting
-	// the following derivation: m/purpose'/cointype'
-	//
-	// Note that the path to the coin type is requires hardened derivation,
-	// therefore this can only be done if the wallet's root key hasn't been
-	// neutered.
-	masterRootPrivEnc, _, err := fetchMasterHDKeys(ns)
-	if err != nil {
-		return nil, err
-	}
+		// Now that we know the manager is unlocked, we'll need to fetch the
+		// root master HD private key. This is required as we'll be attempting
+		// the following derivation: m/purpose'/cointype'
+		//
+		// Note that the path to the coin type is requires hardened derivation,
+		// therefore this can only be done if the wallet's root key hasn't been
+		// neutered.
+		masterRootPrivEnc, _, err := fetchMasterHDKeys(ns)
+		if err != nil {
+			return nil, err
+		}
 
-	// If the master root private key isn't found within the database, but
-	// we need to bail here as we can't create the cointype key without the
-	// master root private key.
-	if masterRootPrivEnc == nil {
-		return nil, managerError(ErrWatchingOnly, "", nil)
-	}
+		// If the master root private key isn't found within the database, but
+		// we need to bail here as we can't create the cointype key without the
+		// master root private key.
+		if masterRootPrivEnc == nil {
+			return nil, managerError(ErrWatchingOnly, "", nil)
+		}
 
-	// Before we can derive any new scoped managers using this key, we'll
-	// need to fully decrypt it.
-	serializedMasterRootPriv, err := m.cryptoKeyPriv.Decrypt(masterRootPrivEnc)
-	if err != nil {
-		str := fmt.Sprintf("failed to decrypt master root serialized private key")
-		return nil, managerError(ErrLocked, str, err)
-	}
+		// Before we can derive any new scoped managers using this key, we'll
+		// need to fully decrypt it.
+		serializedMasterRootPriv, err := m.cryptoKeyPriv.Decrypt(masterRootPrivEnc)
+		if err != nil {
+			str := fmt.Sprintf("failed to decrypt master root serialized private key")
+			return nil, managerError(ErrLocked, str, err)
+		}
 
-	// Now that we know the root priv is within the database, we'll decode
-	// it into a usable object.
-	rootPriv, err := hdkeychain.NewKeyFromString(
-		string(serializedMasterRootPriv),
-	)
-	zero.Bytes(serializedMasterRootPriv)
-	if err != nil {
-		str := fmt.Sprintf("failed to create master extended private key")
-		return nil, managerError(ErrKeyChain, str, err)
+		// Now that we know the root priv is within the database, we'll decode
+		// it into a usable object.
+		rootPriv, err = hdkeychain.NewKeyFromString(
+			string(serializedMasterRootPriv),
+		)
+		zero.Bytes(serializedMasterRootPriv)
+		if err != nil {
+			str := fmt.Sprintf("failed to create master extended private key")
+			return nil, managerError(ErrKeyChain, str, err)
+		}
 	}
 
 	// Now that we have the root private key, we'll fetch the scope bucket
@@ -498,73 +501,21 @@ func (m *Manager) NewScopedKeyManager(ns walletdb.ReadWriteBucket, scope KeyScop
 	}
 	scopeKey := scopeToBytes(&scope)
 	schemaBytes := scopeSchemaToBytes(&addrSchema)
-	err = scopeSchemas.Put(scopeKey[:], schemaBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the database state created, we'll now derive the cointype key
-	// using the master HD private key, then encrypt it along with the
-	// first account using our crypto keys.
-	err = createManagerKeyScope(
-		ns, scope, rootPriv, m.cryptoKeyPub, m.cryptoKeyPriv,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, we'll register this new scoped manager with the root
-	// manager.
-	m.scopedManagers[scope] = &ScopedKeyManager{
-		scope:       scope,
-		addrSchema:  addrSchema,
-		rootManager: m,
-		addrs:       make(map[addrKey]ManagedAddress),
-		acctInfo:    make(map[uint32]*accountInfo),
-	}
-	m.externalAddrSchemas[addrSchema.ExternalAddrType] = append(
-		m.externalAddrSchemas[addrSchema.ExternalAddrType], scope,
-	)
-	m.internalAddrSchemas[addrSchema.InternalAddrType] = append(
-		m.internalAddrSchemas[addrSchema.InternalAddrType], scope,
-	)
-
-	return m.scopedManagers[scope], nil
-}
-
-// NewWatchingOnlyScopedKeyManager creates a new watching-only scoped
-// key manager from the root manager.  A scoped key manager is a
-// sub-manager that only has the coin type key of a particular coin
-// type and BIP0043 purpose. This is useful as it enables callers to
-// create an arbitrary BIP0043 like schema with a stand alone manager.
-func (m *Manager) NewWatchingOnlyScopedKeyManager(ns walletdb.ReadWriteBucket,
-	scope KeyScope, addrSchema ScopeAddrSchema) (*ScopedKeyManager, error) {
-
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	// Now we'll fetch the scope bucket
-	// so we can create the proper internal name spaces.
-	scopeBucket := ns.NestedReadWriteBucket(scopeBucketName)
-
-	// Now that we know it's possible to actually create a new scoped
-	// manager, we'll carve out its bucket space within the database.
-	if err := createScopedManagerNS(scopeBucket, &scope); err != nil {
-		return nil, err
-	}
-
-	// With the database state created, we'll now write down the address
-	// schema of this particular scope type.
-	scopeSchemas := ns.NestedReadWriteBucket(scopeSchemaBucketName)
-	if scopeSchemas == nil {
-		str := "scope schema bucket not found"
-		return nil, managerError(ErrDatabase, str, nil)
-	}
-	scopeKey := scopeToBytes(&scope)
-	schemaBytes := scopeSchemaToBytes(&addrSchema)
 	err := scopeSchemas.Put(scopeKey[:], schemaBytes)
 	if err != nil {
 		return nil, err
+	}
+
+	if !m.watchingOnly {
+		// With the database state created, we'll now derive the cointype key
+		// using the master HD private key, then encrypt it along with the
+		// first account using our crypto keys.
+		err = createManagerKeyScope(
+			ns, scope, rootPriv, m.cryptoKeyPub, m.cryptoKeyPriv,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Finally, we'll register this new scoped manager with the root
