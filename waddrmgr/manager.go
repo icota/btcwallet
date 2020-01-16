@@ -532,14 +532,13 @@ func (m *Manager) NewScopedKeyManager(ns walletdb.ReadWriteBucket, scope KeyScop
 	return m.scopedManagers[scope], nil
 }
 
-// NewWatchingOnlyScopedKeyManager creates a new watching-only scoped key manager
-// from the root manager.
-// A scoped key manager is a sub-manager that only has the coin type key of a
-// particular coin type and BIP0043 purpose. This is useful as it enables
-// callers to create an arbitrary BIP0043 like schema with a stand alone
-// manager.
-func (m *Manager) NewWatchingOnlyScopedKeyManager(ns walletdb.ReadWriteBucket, scope KeyScope,
-	addrSchema ScopeAddrSchema) (*ScopedKeyManager, error) {
+// NewWatchingOnlyScopedKeyManager creates a new watching-only scoped
+// key manager from the root manager.  A scoped key manager is a
+// sub-manager that only has the coin type key of a particular coin
+// type and BIP0043 purpose. This is useful as it enables callers to
+// create an arbitrary BIP0043 like schema with a stand alone manager.
+func (m *Manager) NewWatchingOnlyScopedKeyManager(ns walletdb.ReadWriteBucket,
+	scope KeyScope, addrSchema ScopeAddrSchema) (*ScopedKeyManager, error) {
 
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
