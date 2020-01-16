@@ -1701,8 +1701,38 @@ func Create(ns walletdb.ReadWriteBucket,
 		str := "failed to master public key"
 		return managerError(ErrCrypto, str, err)
 	}
+
+	// Generate new crypto public, private, and script keys.  These keys are
+	// used to protect the actual public and private data such as addresses,
+	// extended keys, and scripts.
+	cryptoKeyPub, err := newCryptoKey()
+	if err != nil {
+		str := "failed to generate crypto public key"
+		return managerError(ErrCrypto, str, err)
+	}
+
+	// Encrypt the crypto keys with the associated master keys.
+	cryptoKeyPubEnc, err := masterKeyPub.Encrypt(cryptoKeyPub.Bytes())
+	if err != nil {
+		str := "failed to encrypt crypto public key"
+		return managerError(ErrCrypto, str, err)
+	}
+
+	// Use the genesis block for the passed chain as the created at block
+	// for the default.
+	createdAt := &BlockStamp{Hash: *chainParams.GenesisHash, Height: 0}
+
+	// Create the initial sync state.
+	syncInfo := newSyncState(createdAt, createdAt)
+
+	pubParams := masterKeyPub.Marshal()
+
+	var privParams []byte = nil
+	var masterKeyPriv *snacl.SecretKey
+	var cryptoKeyPrivEnc []byte = nil
+	var cryptoKeyScriptEnc []byte = nil
 	if !isWatchingOnly {
-		masterKeyPriv, err := newSecretKey(&privPassphrase, config)
+		masterKeyPriv, err = newSecretKey(&privPassphrase, config)
 		if err != nil {
 			str := "failed to master private key"
 			return managerError(ErrCrypto, str, err)
@@ -1718,17 +1748,7 @@ func Create(ns walletdb.ReadWriteBucket,
 			str := "failed to read random source for passphrase salt"
 			return managerError(ErrCrypto, str, err)
 		}
-	}
 
-	// Generate new crypto public, private, and script keys.  These keys are
-	// used to protect the actual public and private data such as addresses,
-	// extended keys, and scripts.
-	cryptoKeyPub, err := newCryptoKey()
-	if err != nil {
-		str := "failed to generate crypto public key"
-		return managerError(ErrCrypto, str, err)
-	}
-	if !isWatchingOnly {
 		cryptoKeyPriv, err := newCryptoKey()
 		if err != nil {
 			str := "failed to generate crypto private key"
@@ -1741,46 +1761,18 @@ func Create(ns walletdb.ReadWriteBucket,
 			return managerError(ErrCrypto, str, err)
 		}
 		defer cryptoKeyScript.Zero()
-	}
 
-	// Encrypt the crypto keys with the associated master keys.
-	cryptoKeyPubEnc, err := masterKeyPub.Encrypt(cryptoKeyPub.Bytes())
-	if err != nil {
-		str := "failed to encrypt crypto public key"
-		return managerError(ErrCrypto, str, err)
-	}
-	if !isWatchingOnly {
-		cryptoKeyPrivEnc, err := masterKeyPriv.Encrypt(cryptoKeyPriv.Bytes())
+		cryptoKeyPrivEnc, err = masterKeyPriv.Encrypt(cryptoKeyPriv.Bytes())
 		if err != nil {
 			str := "failed to encrypt crypto private key"
 			return managerError(ErrCrypto, str, err)
 		}
-		cryptoKeyScriptEnc, err := masterKeyPriv.Encrypt(cryptoKeyScript.Bytes())
+		cryptoKeyScriptEnc, err = masterKeyPriv.Encrypt(cryptoKeyScript.Bytes())
 		if err != nil {
 			str := "failed to encrypt crypto script key"
 			return managerError(ErrCrypto, str, err)
 		}
-	}
 
-	// Use the genesis block for the passed chain as the created at block
-	// for the default.
-	createdAt := &BlockStamp{Hash: *chainParams.GenesisHash, Height: 0}
-
-	// Create the initial sync state.
-	syncInfo := newSyncState(createdAt, createdAt)
-
-	// Save the master key params to the database.
-	pubParams := masterKeyPub.Marshal()
-	var privParams []byte = nil
-	if !isWatchingOnly {
-		privParams = masterKeyPriv.Marshal()
-	}
-	err = putMasterKeyParams(ns, pubParams, privParams)
-	if err != nil {
-		return maybeConvertDbError(err)
-	}
-
-	if !isWatchingOnly {
 		// Generate the BIP0044 HD key structure to ensure the provided seed
 		// can generate the required structure with no issues.
 
@@ -1822,6 +1814,14 @@ func Create(ns walletdb.ReadWriteBucket,
 		if err != nil {
 			return maybeConvertDbError(err)
 		}
+
+		privParams = masterKeyPriv.Marshal()
+	}
+
+	// Save the master key params to the database.
+	err = putMasterKeyParams(ns, pubParams, privParams)
+	if err != nil {
+		return maybeConvertDbError(err)
 	}
 
 	// Save the encrypted crypto keys to the database.
@@ -1834,107 +1834,6 @@ func Create(ns walletdb.ReadWriteBucket,
 	// Save the watching-only mode of the address manager to the
 	// database.
 	err = putWatchingOnly(ns, isWatchingOnly)
-	if err != nil {
-		return maybeConvertDbError(err)
-	}
-
-	// Save the initial synced to state.
-	err = PutSyncedTo(ns, &syncInfo.syncedTo)
-	if err != nil {
-		return maybeConvertDbError(err)
-	}
-	err = putStartBlock(ns, &syncInfo.startBlock)
-	if err != nil {
-		return maybeConvertDbError(err)
-	}
-
-	// Use 48 hours as margin of safety for wallet birthday.
-	return putBirthday(ns, birthday.Add(-48*time.Hour))
-}
-
-// CreateWatchOnly creates a new watching-only address manager in the given namespace.
-//
-// No default account or scoped manager are created - it is up to the
-// caller to create a new one with NewAccountWatchingOnly and
-// NewWatchingOnlyScopedKeyManager
-//
-// All public keys and information are protected by secret keys
-// derived from the provided public passphrases.  The public
-// passphrase is required on subsequent opens of the address manager.
-//
-// If a config structure is passed to the function, that configuration will
-// override the defaults.
-//
-// A ManagerError with an error code of ErrAlreadyExists will be returned the
-// address manager already exists in the specified namespace.
-func CreateWatchOnly(ns walletdb.ReadWriteBucket,
-	pubPassphrase []byte,
-	chainParams *chaincfg.Params, config *ScryptOptions,
-	birthday time.Time) error {
-
-	// Return an error if the manager has already been created in
-	// the given database namespace.
-	exists := managerExists(ns)
-	if exists {
-		return managerError(ErrAlreadyExists, errAlreadyExists, nil)
-	}
-
-	// Perform the initial bucket creation and database namespace setup.
-	if err := createManagerNS(ns, map[KeyScope]ScopeAddrSchema{}); err != nil {
-		return maybeConvertDbError(err)
-	}
-
-	if config == nil {
-		config = &DefaultScryptOptions
-	}
-
-	// Generate new master keys.  These master keys are used to protect the
-	// crypto keys that will be generated next.
-	masterKeyPub, err := newSecretKey(&pubPassphrase, config)
-	if err != nil {
-		str := "failed to master public key"
-		return managerError(ErrCrypto, str, err)
-	}
-
-	// Generate new crypto public, private, and script keys.  These keys are
-	// used to protect the actual public and private data such as addresses,
-	// extended keys, and scripts.
-	cryptoKeyPub, err := newCryptoKey()
-	if err != nil {
-		str := "failed to generate crypto public key"
-		return managerError(ErrCrypto, str, err)
-	}
-
-	// Encrypt the crypto keys with the associated master keys.
-	cryptoKeyPubEnc, err := masterKeyPub.Encrypt(cryptoKeyPub.Bytes())
-	if err != nil {
-		str := "failed to encrypt crypto public key"
-		return managerError(ErrCrypto, str, err)
-	}
-
-	// Use the genesis block for the passed chain as the created at block
-	// for the default.
-	createdAt := &BlockStamp{Hash: *chainParams.GenesisHash, Height: 0}
-
-	// Create the initial sync state.
-	syncInfo := newSyncState(createdAt, createdAt)
-
-	// Save the master key params to the database.
-	pubParams := masterKeyPub.Marshal()
-	err = putMasterKeyParams(ns, pubParams, nil)
-	if err != nil {
-		return maybeConvertDbError(err)
-	}
-
-	// Save the encrypted crypto keys to the database.
-	err = putCryptoKeys(ns, cryptoKeyPubEnc, nil, nil)
-	if err != nil {
-		return maybeConvertDbError(err)
-	}
-
-	// Save the fact this is a watching-only address manager to the
-	// database.
-	err = putWatchingOnly(ns, true)
 	if err != nil {
 		return maybeConvertDbError(err)
 	}

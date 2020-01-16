@@ -1946,8 +1946,8 @@ func TestManagerNewWatchOnly(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		err = CreateWatchOnly(
-			ns, pubPassphrase,
+		err = Create(
+			ns, nil, pubPassphrase, nil,
 			&chaincfg.MainNetParams, fastScrypt, time.Time{},
 		)
 		if err != nil {
@@ -1975,8 +1975,8 @@ func TestManagerNewWatchOnly(t *testing.T) {
 	// returned.
 	err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
 		ns := tx.ReadWriteBucket(waddrmgrNamespaceKey)
-		return CreateWatchOnly(
-			ns, pubPassphrase,
+		return Create(
+			ns, nil, pubPassphrase, nil,
 			&chaincfg.MainNetParams, fastScrypt, time.Time{},
 		)
 	})
@@ -2639,8 +2639,8 @@ func TestNewRawAccountWatchingOnly(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		err = CreateWatchOnly(
-			ns, pubPassphrase,
+		err = Create(
+			ns, nil, pubPassphrase, nil,
 			&chaincfg.MainNetParams, fastScrypt, time.Time{},
 		)
 		if err != nil {
