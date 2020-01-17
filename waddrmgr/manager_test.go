@@ -1924,8 +1924,14 @@ func testManagerCase(t *testing.T, caseName string,
 	}
 
 	if caseCreatedWatchingOnly {
-		accountKey := deriveTestAccountKey(t)
-		if accountKey == nil {
+		acctKeyPriv := deriveTestAccountKey(t)
+		if acctKeyPriv == nil {
+			return
+		}
+
+		acctKeyPub, err := acctKeyPriv.Neuter()
+		if err != nil {
+			t.Errorf("(%s) Neuter: unexpected error: %v", caseName, err)
 			return
 		}
 
@@ -1933,7 +1939,7 @@ func testManagerCase(t *testing.T, caseName string,
 		err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
 			ns := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 			_, err = scopedMgr.NewAccountWatchingOnly(
-				ns, defaultAccountName, accountKey)
+				ns, defaultAccountName, acctKeyPub)
 			return err
 		})
 		if err != nil {
