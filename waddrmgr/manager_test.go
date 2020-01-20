@@ -1924,12 +1924,12 @@ func testManagerCase(t *testing.T, caseName string,
 	}
 
 	if caseCreatedWatchingOnly {
-		acctKeyPriv := deriveTestAccountKey(t)
-		if acctKeyPriv == nil {
+		accountKey := deriveTestAccountKey(t)
+		if accountKey == nil {
 			return
 		}
 
-		acctKeyPub, err := acctKeyPriv.Neuter()
+		acctKeyPub, err := accountKey.Neuter()
 		if err != nil {
 			t.Errorf("(%s) Neuter: unexpected error: %v", caseName, err)
 			return
@@ -2641,6 +2641,71 @@ func TestNewRawAccountWatchingOnly(t *testing.T) {
 	err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
 		ns := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 		return scopedMgr.NewRawAccountWatchingOnly(ns, accountNum, accountKey)
+	})
+	if err != nil {
+		t.Fatalf("unable to create new account: %v", err)
+	}
+
+	testNewRawAccount(t, mgr, db, accountNum, scopedMgr)
+}
+
+// TestNewRawAccountHybrid is similar to TestNewRawAccountWatchingOnly
+// except that the manager is created normally with a seed. This test
+// shows that watch-only accounts can be added to managers with
+// non-watch-only accounts.
+func TestNewRawAccountHybrid(t *testing.T) {
+	t.Parallel()
+
+	teardown, db := emptyDB(t)
+	defer teardown()
+
+	// We'll start the test by creating a new root manager that will be
+	// used for the duration of the test.
+	var mgr *Manager
+	err := walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		ns, err := tx.CreateTopLevelBucket(waddrmgrNamespaceKey)
+		if err != nil {
+			return err
+		}
+		err = Create(
+			ns, seed, pubPassphrase, privPassphrase,
+			&chaincfg.MainNetParams, fastScrypt, time.Time{},
+		)
+		if err != nil {
+			return err
+		}
+		mgr, err = Open(ns, pubPassphrase, &chaincfg.MainNetParams)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("create/open: unexpected error: %v", err)
+	}
+	defer mgr.Close()
+
+	// Now that we have the manager created, we'll fetch one of the default
+	// scopes for usage within this test.
+	scopedMgr, err := mgr.FetchScopedKeyManager(KeyScopeBIP0044)
+	if err != nil {
+		t.Fatalf("unable to fetch scope %v: %v", KeyScopeBIP0044, err)
+	}
+
+	accountKey := deriveTestAccountKey(t)
+	if accountKey == nil {
+		return
+	}
+
+	acctKeyPub, err := accountKey.Neuter()
+	if err != nil {
+		t.Errorf("Neuter: unexpected error: %v", err)
+		return
+	}
+
+	// With the scoped manager retrieved, we'll attempt to create a new raw
+	// account by number.
+	const accountNum = 1000
+	err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		ns := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+		return scopedMgr.NewRawAccountWatchingOnly(ns, accountNum, acctKeyPub)
 	})
 	if err != nil {
 		t.Fatalf("unable to create new account: %v", err)
