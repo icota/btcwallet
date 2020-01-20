@@ -2584,9 +2584,10 @@ func TestNewRawAccount(t *testing.T) {
 	testNewRawAccount(t, mgr, db, accountNum, scopedMgr)
 }
 
-// TestNewRawAccountWatchingOnly tests that callers are able to properly create, and use
-// watching-only raw accounts created with only an account number, and not a string which is
-// eventually mapped to an account number.
+// TestNewRawAccountWatchingOnly tests that callers are able to
+// properly create, and use watching-only raw accounts created with
+// only an account number, and not a string which is eventually mapped
+// to an account number.
 func TestNewRawAccountWatchingOnly(t *testing.T) {
 	t.Parallel()
 
@@ -2614,7 +2615,7 @@ func TestNewRawAccountWatchingOnly(t *testing.T) {
 		}
 
 		_, err = mgr.NewScopedKeyManager(
-			ns, KeyScopeBIP0084, ScopeAddrMap[KeyScopeBIP0084])
+			ns, KeyScopeBIP0044, ScopeAddrMap[KeyScopeBIP0044])
 		return err
 	})
 	if err != nil {
@@ -2624,9 +2625,9 @@ func TestNewRawAccountWatchingOnly(t *testing.T) {
 
 	// Now that we have the manager created, we'll fetch one of the default
 	// scopes for usage within this test.
-	scopedMgr, err := mgr.FetchScopedKeyManager(KeyScopeBIP0084)
+	scopedMgr, err := mgr.FetchScopedKeyManager(KeyScopeBIP0044)
 	if err != nil {
-		t.Fatalf("unable to fetch scope %v: %v", KeyScopeBIP0084, err)
+		t.Fatalf("unable to fetch scope %v: %v", KeyScopeBIP0044, err)
 	}
 
 	accountKey := deriveTestAccountKey(t)
